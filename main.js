@@ -1,15 +1,44 @@
 const { app, BrowserWindow, ipcMain, Menu, Tray, screen } = require('electron');
 const path = require('path');
-const { spawn, exec } = require('child_process');
+const { spawn, execSync } = require('child_process');
 
 let mainWindow;
 let tray;
 let pythonHelper;
-let isLocked = false; // Whether the user locked interaction completely (always click-through)
+let isLocked = false;
+
+const REGISTRY_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
+const APP_NAME = 'ProductiveDashboard';
+
+function isAutoStartEnabled() {
+  try {
+    const result = execSync(`reg query "${REGISTRY_KEY}" /v "${APP_NAME}" 2>nul`, { encoding: 'utf8' });
+    return result.includes(APP_NAME);
+  } catch {
+    return false;
+  }
+}
+
+function setAutoStart(enable) {
+  try {
+    if (enable) {
+      const exePath = app.getPath('exe');
+      execSync(`reg add "${REGISTRY_KEY}" /v "${APP_NAME}" /t REG_SZ /d "${exePath}" /f`, { stdio: 'pipe' });
+    } else {
+      execSync(`reg delete "${REGISTRY_KEY}" /v "${APP_NAME}" /f`, { stdio: 'pipe' });
+    }
+    return true;
+  } catch (err) {
+    console.error('[AutoStart] Error:', err.message);
+    return false;
+  }
+}
 
 function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.bounds;
+
+  console.log(`[createWindow] Display: ${width}x${height}`);
 
   mainWindow = new BrowserWindow({
     width: width,
@@ -22,7 +51,7 @@ function createWindow() {
     movable: false,
     hasShadow: false,
     skipTaskbar: true,
-    focusable: false, // Start non-focusable so it behaves as background
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -31,32 +60,44 @@ function createWindow() {
     }
   });
 
+  console.log('[createWindow] BrowserWindow created');
 
-  // Load React renderer from Vite dev server during development
+  // Load renderer
   const isDev = !app.isPackaged;
   if (isDev) {
     const candidatePorts = [5173, 5174, 5175, 5176, 5177];
     const base = process.env.VITE_DEV_SERVER_URL ? new URL(process.env.VITE_DEV_SERVER_URL).origin : null;
     const devOrigins = base ? [base] : [];
-
     const tryUrls = devOrigins.concat(candidatePorts.map(p => `http://localhost:${p}/`));
 
     const tryNext = (i) => {
       const url = tryUrls[i];
       if (!url) {
-        console.error('No Vite dev server found in candidate ports:', candidatePorts);
+        console.error('No Vite dev server found');
         return;
       }
+      console.log('[createWindow] Loading URL:', url);
       mainWindow.loadURL(url);
-      console.log('Loading renderer URL:', url);
     };
-
     tryNext(0);
   } else {
-    mainWindow.loadFile(path.join(__dirname, 'dist', 'renderer', 'renderer', 'index.html'));
+    const filePath = path.join(__dirname, 'index.html');
+    console.log('[createWindow] Loading file:', filePath);
+    mainWindow.loadFile(filePath);
   }
 
-  // Prevent window from being closed unless explicitly exiting the app
+  // Log load success/failure
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('[createWindow] Renderer loaded successfully');
+    console.log('[createWindow] Window bounds:', mainWindow.getBounds());
+    console.log('[createWindow] isVisible:', mainWindow.isVisible());
+  });
+
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.error('[createWindow] Renderer FAILED:', errorCode, errorDescription);
+  });
+
+  // Prevent close — hide to tray instead
   mainWindow.on('close', (event) => {
     if (!app.isQuitting) {
       event.preventDefault();
@@ -65,33 +106,50 @@ function createWindow() {
     return false;
   });
 
-  // Handle Win+D show-desktop minimize
-  mainWindow.on('minimize', (event) => {
-    event.preventDefault();
-    setTimeout(() => {
-      if (mainWindow) {
-        mainWindow.restore();
-        mainWindow.blur();
-      }
-    }, 150);
-  });
-
-  // Wait until window is ready and then pin it using the python helper
+  // When window is ready — show and pin to desktop
   mainWindow.once('ready-to-show', () => {
-    mainWindow.showInactive();
-    mainWindow.blur();
+    console.log('[createWindow] ready-to-show fired');
 
-    mainWindow.setIgnoreMouseEvents(true, { forward: true });
+    // Show the window
+    mainWindow.show();
+    mainWindow.focus();
+    console.log('[createWindow] After show() — isVisible:', mainWindow.isVisible());
+    console.log('[createWindow] Bounds:', mainWindow.getBounds());
 
-    const hwndBuffer = mainWindow.getNativeWindowHandle();
-    const hwndDecimal = process.arch === 'x64'
-      ? hwndBuffer.readBigInt64LE().toString()
-      : hwndBuffer.readInt32LE().toString();
+    // Pin behind desktop icons using Python helper
+    pinToDesktop();
+  });
+}
 
-    console.log(`Electron HWND: ${hwndDecimal}`);
+function pinToDesktop() {
+  const hwndBuffer = mainWindow.getNativeWindowHandle();
+  const hwndDecimal = process.arch === 'x64'
+    ? hwndBuffer.readBigInt64LE().toString()
+    : hwndBuffer.readInt32LE().toString();
 
-    const helperPath = path.join(__dirname, 'scripts', 'window_helper.py');
-    pythonHelper = spawn('python', [helperPath, hwndDecimal]);
+  console.log(`[pinToDesktop] HWND: ${hwndDecimal}`);
+
+  // Try to find python in PATH
+  let pythonCmd = 'python';
+  try {
+    execSync('where python', { stdio: 'pipe' });
+    console.log('[pinToDesktop] Found python in PATH');
+  } catch {
+    try {
+      execSync('where python3', { stdio: 'pipe' });
+      pythonCmd = 'python3';
+      console.log('[pinToDesktop] Found python3 in PATH');
+    } catch {
+      console.warn('[pinToDesktop] Python not found in PATH — skipping desktop pinning');
+      return;
+    }
+  }
+
+  const helperPath = path.join(__dirname, 'scripts', 'window_helper.py');
+  console.log('[pinToDesktop] Helper path:', helperPath);
+
+  try {
+    pythonHelper = spawn(pythonCmd, [helperPath, hwndDecimal]);
 
     pythonHelper.stdout.on('data', (data) => {
       console.log(`[Python Helper]: ${data}`);
@@ -100,13 +158,23 @@ function createWindow() {
     pythonHelper.stderr.on('data', (data) => {
       console.error(`[Python Helper Error]: ${data}`);
     });
-  });
+
+    pythonHelper.on('error', (err) => {
+      console.error('[pinToDesktop] Failed to start python:', err.message);
+    });
+
+    pythonHelper.on('close', (code) => {
+      console.log(`[pinToDesktop] Python helper exited with code ${code}`);
+    });
+  } catch (err) {
+    console.error('[pinToDesktop] Spawn error:', err.message);
+  }
 }
 
 // Setup System Tray
-
 function createTray() {
   const iconPath = path.join(__dirname, 'assets', 'icon.ico');
+  console.log('[createTray] Icon path:', iconPath);
   tray = new Tray(iconPath);
 
   const contextMenu = Menu.buildFromTemplate([
@@ -118,7 +186,7 @@ function createTray() {
     {
       label: 'Show Dashboard',
       click: () => {
-        console.log('clicked: Show Dashboard, mainWindow:', !!mainWindow);
+        console.log('[Tray] Show Dashboard');
         if (mainWindow) {
           mainWindow.show();
           mainWindow.focus();
@@ -128,7 +196,7 @@ function createTray() {
     {
       label: 'Hide Dashboard',
       click: () => {
-        console.log('clicked: Hide Dashboard, mainWindow:', !!mainWindow);
+        console.log('[Tray] Hide Dashboard');
         if (mainWindow) {
           mainWindow.hide();
         }
@@ -139,31 +207,54 @@ function createTray() {
       type: 'checkbox',
       checked: isLocked,
       click: (menuItem) => {
-        console.log('clicked: Lock/Unlock, checked:', menuItem.checked);
+        console.log('[Tray] Lock/Unlock:', menuItem.checked);
         isLocked = menuItem.checked;
         if (mainWindow) {
-          if (isLocked) {
-            mainWindow.setIgnoreMouseEvents(true);
-          } else {
-            mainWindow.setIgnoreMouseEvents(true, { forward: true });
-          }
+          mainWindow.setIgnoreMouseEvents(!isLocked ? true : true, { forward: !isLocked });
         }
       }
     },
     {
       label: 'Refresh',
       click: () => {
-        console.log('clicked: Refresh, mainWindow:', !!mainWindow);
+        console.log('[Tray] Refresh');
         if (mainWindow) {
           mainWindow.reload();
         }
+      }
+    },
+    {
+      label: 'Start on Boot',
+      type: 'checkbox',
+      checked: isAutoStartEnabled(),
+      click: (menuItem) => {
+        console.log('[Tray] Start on Boot:', menuItem.checked);
+        setAutoStart(menuItem.checked);
+      }
+    },
+    {
+      label: 'Clear All Data',
+      click: () => {
+        const { dialog } = require('electron');
+        dialog.showMessageBox(mainWindow, {
+          type: 'warning',
+          title: 'Clear All Data',
+          message: 'This will delete all tasks, notes, history, and scores. This cannot be undone.',
+          buttons: ['Cancel', 'Clear All'],
+          defaultId: 0,
+          cancelId: 0
+        }).then(({ response }) => {
+          if (response === 1) {
+            mainWindow.webContents.send('clear-all-data');
+          }
+        });
       }
     },
     { type: 'separator' },
     {
       label: 'Exit',
       click: () => {
-        console.log('clicked: Exit');
+        console.log('[Tray] Exit');
         app.isQuitting = true;
         app.quit();
       }
@@ -173,9 +264,8 @@ function createTray() {
   tray.setToolTip('Productive Wallpaper Dashboard');
   tray.setContextMenu(contextMenu);
 
-  // Single click toggles show/hide
   tray.on('click', () => {
-    console.log('tray clicked, mainWindow:', !!mainWindow);
+    console.log('[Tray] Click toggle');
     if (mainWindow) {
       if (mainWindow.isVisible()) {
         mainWindow.hide();
@@ -187,7 +277,7 @@ function createTray() {
   });
 }
 
-// Initialize Single Instance lock
+// Initialize
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
@@ -195,27 +285,21 @@ if (!gotTheLock) {
   app.on('second-instance', () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.showInactive();
-      mainWindow.blur();
+      mainWindow.show();
+      mainWindow.focus();
     }
   });
 
   app.whenReady().then(() => {
+    console.log('[app] whenReady');
     createWindow();
     createTray();
-
-    app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
-    });
   });
 }
 
 // IPC Handlers
 ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
-  if (isLocked && !ignore) {
-    // If locked, reject enabling mouse interaction
-    return;
-  }
+  if (isLocked && !ignore) return;
   if (mainWindow) {
     mainWindow.setIgnoreMouseEvents(ignore, options);
   }
@@ -239,7 +323,7 @@ ipcMain.on('open-path', (event, targetPath) => {
   }
 });
 
-// Cleanup processes on exit
+// Cleanup
 app.on('will-quit', () => {
   if (pythonHelper) {
     pythonHelper.kill();

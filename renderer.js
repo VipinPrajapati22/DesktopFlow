@@ -129,12 +129,12 @@ function loadState() {
   const d = state.selectedDateStr;
   const future = isFutureDate(d);
 
-  state.tasks = future ? [] : (state.daysTasks[d] || legacyTasks || DEFAULT_TASKS);
+  state.tasks = future ? [] : (state.daysTasks[d] || legacyTasks || []);
   state.daysTasks[d] = state.tasks;
-  state.notes = future ? "" : (state.daysNotes[d] || "Productive day overall. Completed most important tasks. Need to improve focus in the afternoon.");
-  state.wins = future ? [] : (state.daysWins[d] || DEFAULT_WINS);
-  state.challenges = future ? [] : (state.daysChallenges[d] || DEFAULT_CHALLENGES);
-  state.summary = future ? "" : (state.daysSummary[d] || "A good and productive day. Keep building consistency.");
+  state.notes = future ? "" : (state.daysNotes[d] || "");
+  state.wins = future ? [] : (state.daysWins[d] || []);
+  state.challenges = future ? [] : (state.daysChallenges[d] || []);
+  state.summary = future ? "" : (state.daysSummary[d] || "");
 }
 
 function saveState() {
@@ -168,11 +168,11 @@ function switchToDate(newDateStr, targetDate) {
   state.selectedDateStr = newDateStr;
   const future = isFutureDate(newDateStr);
 
-  state.tasks = future ? [] : (state.daysTasks[newDateStr] || DEFAULT_TASKS);
-  state.notes = future ? "" : (state.daysNotes[newDateStr] || "Productive day overall. Completed most important tasks. Need to improve focus in the afternoon.");
-  state.wins = future ? [] : (state.daysWins[newDateStr] || DEFAULT_WINS);
-  state.challenges = future ? [] : (state.daysChallenges[newDateStr] || DEFAULT_CHALLENGES);
-  state.summary = future ? "" : (state.daysSummary[newDateStr] || "A good and productive day. Keep building consistency.");
+  state.tasks = future ? [] : (state.daysTasks[newDateStr] || []);
+  state.notes = future ? "" : (state.daysNotes[newDateStr] || "");
+  state.wins = future ? [] : (state.daysWins[newDateStr] || []);
+  state.challenges = future ? [] : (state.daysChallenges[newDateStr] || []);
+  state.summary = future ? "" : (state.daysSummary[newDateStr] || "");
 
   document.getElementById('sidebar-day-month').innerText = getReadableDate(targetDate);
   document.getElementById('sidebar-day-name').innerText = getDayName(targetDate);
@@ -937,6 +937,13 @@ function setupEventHandlers() {
   });
 
   cancelBulletBtn.addEventListener('click', closeBulletForm);
+
+  if (window.electronAPI && window.electronAPI.onClearAllData) {
+    window.electronAPI.onClearAllData(() => {
+      localStorage.clear();
+      location.reload();
+    });
+  }
 }
 
 // ==========================================

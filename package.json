@@ -33,7 +33,8 @@
       "assets/**/*"
     ],
     "win": {
-      "target": "portable"
+      "target": "portable",
+      "signAndEditExecutable": false
     },
     "portable": {
       "artifactName": "Productive-portable.exe"
