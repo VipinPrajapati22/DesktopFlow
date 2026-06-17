@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Tailwind entry (Phase 1). We keep existing design-like variables to avoid UI drift.
+   Phase 2+ will expand UI styles. */
+
+
+:root {
+    --color-bg-glass: rgba(13, 18, 30, 0.35);
+    --color-border-glass: rgba(255, 255, 255, 0.05);
+    --color-border-hover: rgba(255, 255, 255, 0.12);
+
+    --primary: #60a5fa;
+    --primary-hover: #93c5fd;
+    --success: #10b981;
+    --success-glow: rgba(16, 185, 129, 0.15);
+    --warning: #f59e0b;
+    --danger: #f43f5e;
+
+    --text-primary: rgba(255, 255, 255, 0.92);
+    --text-secondary: rgba(255, 255, 255, 0.6);
+    --text-muted: rgba(255, 255, 255, 0.35);
+
+    --font-display: 'Outfit', 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
+    --font-sans: 'Inter', 'Segoe UI Variable Text', 'Segoe UI', -apple-system, sans-serif;
+}
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    margin: 0;
+    font-family: var(--font-sans);
+    color: var(--text-primary);
+}
+
+#root {
+    width: 100%;
+    height: 100%;
+}

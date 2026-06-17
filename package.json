@@ -1,0 +1,63 @@
+{
+  "name": "productive-wallpaper",
+  "version": "1.0.0",
+  "description": "Windows 11 desktop productivity wallpaper overlay application",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev:renderer": "vite",
+    "build:renderer": "vite build",
+    "build:win": "electron-builder --win portable",
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\""
+  },
+  "keywords": [
+    "desktop",
+    "wallpaper",
+    "productivity",
+    "glassmorphism",
+    "windows11"
+  ],
+  "author": "Antigravity",
+  "license": "MIT",
+  "build": {
+    "appId": "com.productive.app",
+    "productName": "Productive",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "index.html",
+      "index.css",
+      "dist/**/*",
+      "scripts/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": "portable"
+    },
+    "portable": {
+      "artifactName": "Productive-portable.exe"
+    }
+  },
+  "devDependencies": {
+    "@types/electron": "^1.4.38",
+    "@types/node": "^25.9.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "autoprefixer": "^10.5.0",
+    "concurrently": "^10.0.3",
+    "electron": "^42.4.1",
+    "electron-builder": "^26.0.12",
+    "eslint": "^10.5.0",
+    "framer-motion": "^12.40.0",
+    "postcss": "^8.5.15",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "wait-on": "^9.0.10",
+    "zustand": "^5.0.14"
+  }
+}
